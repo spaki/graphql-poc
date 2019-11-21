@@ -1,9 +1,11 @@
-using GraphiQl;
 using GraphQL.POC.Infra;
 using GraphQL.POC.Repositories;
+using GraphQL.Server;
+using GraphQL.Server.Ui.Playground;
 using GraphQL.Types;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -26,12 +28,13 @@ namespace GraphQL.POC
             services.AddTransient<IRepository, FakeRepository>();
 
             // -> GraphQL
-            services.AddSingleton<IDependencyResolver>(c => new FuncDependencyResolver(c.GetRequiredService));
-            services.AddSingleton<IDocumentExecuter, DocumentExecuter>();
-            services.AddSingleton<ProductQuery>();
-            services.AddSingleton<ProductType>();
-            services.AddSingleton<CategoryType>();
-            services.AddSingleton<ISchema, ProductSchema>();
+            services.AddScoped<IDependencyResolver>(c => new FuncDependencyResolver(c.GetRequiredService));
+            services.AddScoped<ISchema, ProductSchema>();
+            services.AddGraphQL(c => { c.ExposeExceptions = true; }).AddGraphTypes(ServiceLifetime.Scoped);
+
+            // -> workaround for graphql serialization in .net 3.0
+            services.Configure<KestrelServerOptions>(options => { options.AllowSynchronousIO = true; });
+            services.Configure<IISServerOptions>(options => { options.AllowSynchronousIO = true; });
         }
 
         public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
@@ -50,9 +53,13 @@ namespace GraphQL.POC
                 .AllowAnyHeader()
             );
 
+            // -> Swagger ui
             app.UseSwagger();
             app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "GraphQL POC"));
-            app.UseGraphiQl("/graphql");
+
+            // -> GraphQL route (post) and ui/playgorund
+            app.UseGraphQL<ISchema>();
+            app.UseGraphQLPlayground(new GraphQLPlaygroundOptions());
 
             app.UseHttpsRedirection();
             app.UseRouting();
